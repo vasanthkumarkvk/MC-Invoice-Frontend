@@ -7,7 +7,7 @@ import Sheet from '@/components/Sheet';
 import { DeleteModal } from '@/components/Modal';
 import EmptyState from '@/components/EmptyState';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 // Success Modal Component
 function SuccessModal({ open, message, onClose, type = 'success' }) {

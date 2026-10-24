@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/lib/AppContext';
 import Toasts from '@/components/Toast';
-const API_BASE = "https://api.crazystory.in/api";
+const API_BASE = "https://invoice.crazystory.in/api";
 const LOGO = 'https://mindcarve.in/wp-content/uploads/2023/07/1.5X1-1.png';
 
 const CURRENCIES = [

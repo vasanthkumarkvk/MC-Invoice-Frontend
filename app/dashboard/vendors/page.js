@@ -6,7 +6,7 @@ import Sheet from '@/components/Sheet';
 import { DeleteModal } from '@/components/Modal';
 import EmptyState from '@/components/EmptyState';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 function VendorForm({ data, onSave, onCancel, toast }) {
   const [f, setF] = useState(data || { 

@@ -9,7 +9,7 @@ import { DeleteModal } from '@/components/Modal';
 import EmptyState from '@/components/EmptyState';
 import Sheet from '@/components/Sheet';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 // Edit Purchase Form Component
 function EditPurchaseForm({ data, onSave, onCancel, toast, vendors = [] }) {

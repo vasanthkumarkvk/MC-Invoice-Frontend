@@ -6,7 +6,7 @@ import { ArrowLeft, Download, Printer, Send, Share2, ChevronDown, CheckCircle, A
 import { useApp } from '@/lib/AppContext';
 import { INVOICE_TEMPLATES, fmtRs, today } from '@/lib/data';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 /* ── Invoice Preview Component ── */
 function InvoicePreviewInner() {

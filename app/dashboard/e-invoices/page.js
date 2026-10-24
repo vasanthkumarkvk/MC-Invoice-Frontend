@@ -10,7 +10,7 @@ import {
 import LineItems from '@/components/LineItems';
 import HSNSearch from '@/components/HSNSearch';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 /* ── Status badge ── */
 function StatusBadge({ status }) {

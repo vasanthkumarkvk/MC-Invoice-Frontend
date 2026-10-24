@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ChevronLeft, ChevronDown, Plus, Sparkles, Save, Send, X, Paperclip, Eye, Upload, ImageIcon, AlertCircle, Check, FileText, Printer, ChevronRight, User, Shield, ExternalLink, Pencil, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Plus, Sparkles, Save, Send, X, Paperclip, Eye, Upload, ImageIcon, AlertCircle, Check, FileText, Printer, ChevronRight, User, Shield, ExternalLink, Pencil, Trash2, Tag, Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useApp } from '@/lib/AppContext';
 import { calcDoc, fmtRs, today, addDays, INVOICE_TEMPLATES, STATES } from '@/lib/data';
@@ -10,7 +10,7 @@ import { UnsavedModal } from '@/components/Modal';
 import AIModal from '@/components/AIModal';
 import Sheet from '@/components/Sheet';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 const PAYMENT_METHODS = [
   { value: 'cash', label: 'Cash' },
@@ -153,6 +153,66 @@ function MissingFieldsModal({ open, onClose, missing = [] }) {
   );
 }
 
+/* ── No-Prefix Modal (blocks save; lets user create the first prefix inline) ── */
+function NoPrefixModal({ open, onClose, onCreate }) {
+  const [val, setVal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => { if (open) { setVal(''); setErr(null); setBusy(false); } }, [open]);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    const v = val.trim().toUpperCase();
+    if (!v) { setErr('Enter a prefix (e.g. INV)'); return; }
+    setBusy(true); setErr(null);
+    const error = await onCreate(v);
+    setBusy(false);
+    if (error) { setErr(error); return; }
+    onClose();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box modal-sm" style={{ textAlign: 'center' }}>
+        <div style={{ padding: '22px 22px 0' }}>
+          <div style={{ width: 58, height: 58, borderRadius: '50%', background: 'var(--brand-bg)', display: 'grid', placeItems: 'center', margin: '0 auto 14px' }}>
+            <Tag size={26} color="var(--brand)" />
+          </div>
+          <h3 style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>Create an Invoice Prefix First</h3>
+          <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+            You need at least one invoice prefix before you can create invoices. Add one now to continue.
+          </p>
+        </div>
+        <div style={{ padding: '18px 22px 8px' }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              className={`form-input ${err ? 'error' : ''}`}
+              style={{ flex: 1, textAlign: 'center', fontWeight: 700, letterSpacing: 1 }}
+              placeholder="e.g. INV"
+              value={val}
+              autoFocus
+              disabled={busy}
+              onChange={e => setVal(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase())}
+              onKeyDown={e => e.key === 'Enter' && submit()}
+            />
+            <button className="btn btn-brand" onClick={submit} disabled={busy} style={{ flexShrink: 0 }}>
+              {busy ? 'Adding…' : 'Create'}
+            </button>
+          </div>
+          {err && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 8 }}>{err}</div>}
+        </div>
+        <div style={{ padding: '8px 22px 20px' }}>
+          <Link href="#" style={{ fontSize: 12, color: 'var(--brand)', textDecoration: 'none', fontWeight: 600 }}>
+            Manage prefixes in Settings Here
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Invoice Preview Modal (read-only, NO save) ── */
 function InvoicePreviewModal({ open, onClose, data }) {
   if (!open || !data) return null;
@@ -278,8 +338,9 @@ function InvoicePreviewModal({ open, onClose, data }) {
   );
 }
 
-/* ── Prefix picker (API-backed: /invoice-prefixes, max 3, inline add/edit/delete) ── */
-function PrefixPicker({ value, onChange, prefixes, loading, onAdd, onEdit, onDelete }) {
+/* ── Prefix picker (API-backed: /invoice-prefixes, max 3, inline add/edit/delete) ──
+   `locked` disables the whole control (used in edit mode). */
+function PrefixPicker({ value, onChange, prefixes, loading, onAdd, onEdit, onDelete, locked = false }) {
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -330,6 +391,17 @@ function PrefixPicker({ value, onChange, prefixes, loading, onAdd, onEdit, onDel
     setBusy(false);
     if (err) { setLocalErr(err); return; }
   };
+
+  // Locked (edit mode): render a static, non-interactive chip.
+  if (locked) {
+    return (
+      <div
+        title="Prefix is locked while editing an existing invoice"
+        style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', border: '2px solid var(--border)', borderRadius: 6, fontWeight: 700, fontSize: 13, background: 'var(--bg)', fontFamily: 'Inter,sans-serif', color: 'var(--muted)', whiteSpace: 'nowrap', cursor: 'not-allowed' }}>
+        {value || 'INV'} <Lock size={11} />
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -470,10 +542,7 @@ const Spin = () => (
   <span style={{ width: 15, height: 15, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
 );
 
-/* ── Quick Add Customer (inline, API-backed) ──
-   - checkUnique supports: mobile, email, gstin, pan
-   - create returns { message, customer_id } only -> caller re-fetches + selects
-*/
+/* ── Quick Add Customer (inline, API-backed) ── */
 function QuickAddCustomer({ open, onClose, onAdded, toast }) {
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
@@ -1330,11 +1399,13 @@ const getStock = (product) => {
 
 const DRAFT_KEY = (id) => `zetsap_invoice_draft_${id || 'new'}`;
 
-/* ── Main invoice create component ── */
+/* ── Main invoice create/edit component ── */
 function CreateInvoiceInner() {
   const router = useRouter();
   const params = useSearchParams();
+  // EDIT MODE: ?id= drives editing. No id → new invoice.
   const editId = params.get('id') ? parseInt(params.get('id')) : null;
+  const isEdit = !!editId;
   const { state, addItem, editItem, toast, fmtMoney, currency } = useApp();
 
   const [apiCustomers, setApiCustomers] = useState([]);
@@ -1354,21 +1425,27 @@ function CreateInvoiceInner() {
   const [showProductSheet, setShowProductSheet] = useState(false);
   const [showTemplatePreview, setShowTemplatePreview] = useState(false);
 
-  const [invoiceNumberValid, setInvoiceNumberValid] = useState(true);
-  const [checkingInvoiceNumber, setCheckingInvoiceNumber] = useState(false);
-  const [invoiceNumberError, setInvoiceNumberError] = useState(null);
+  // Suggested invoice number from /check-number (server decides the next number).
+  // In edit mode we instead carry the EXISTING invoice number.
+  const [suggestedNumber, setSuggestedNumber] = useState('');
+  const [fetchingNumber, setFetchingNumber] = useState(false);
+  const [existingNumber, setExistingNumber] = useState(''); // locked number when editing
   const [selectedTemplate, setSelectedTemplate] = useState('modern');
+
+  // Edit-mode loading flags
+  const [loadingInvoice, setLoadingInvoice] = useState(isEdit);
+  const [invoiceLoadError, setInvoiceLoadError] = useState(null);
 
   const [stockWarnings, setStockWarnings] = useState({});
 
-  // NEW: missing-fields modal + in-page preview modal
+  // missing-fields modal + in-page preview modal + no-prefix modal
   const [missingFields, setMissingFields] = useState([]);
   const [showMissing, setShowMissing] = useState(false);
   const [showInvoicePreview, setShowInvoicePreview] = useState(false);
+  const [showNoPrefix, setShowNoPrefix] = useState(false);
 
   const blankForm = () => ({
-    prefix: 'INV',
-    seq: (state.invoices || []).length + 1,
+    prefix: '',                 // empty until prefixes load
     type: 'Regular',
     customerId: '',
     date: today(),
@@ -1377,7 +1454,7 @@ function CreateInvoiceInner() {
     notes: '',
     terms: 'Payment due within 30 days.',
     disc: 0, adjustment: 0, roundOff: false,
-    advancePaid: 0, paymentMethod: 'cash',  // NEW: initial payment
+    advancePaid: 0, paymentMethod: 'cash',
     status: 'draft', template: 'modern', logo: null,
   });
 
@@ -1395,8 +1472,64 @@ function CreateInvoiceInner() {
 
   const restoredRef = useRef(false);
 
-  // Draft persistence
+  // Map a "type" string from API (e.g. "regular") to the form's display value.
+  const mapTypeFromApi = (t) => {
+    if (!t) return 'Regular';
+    const lc = String(t).toLowerCase();
+    if (lc === 'regular') return 'Regular';
+    if (lc === 'export') return 'Export';
+    if (lc === 'sez') return 'SEZ';
+    if (lc === 'deemed_export' || lc === 'deemed export') return 'Deemed Export';
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  };
+
+  // Convert an API invoice object into the local `form` shape.
+  const mapInvoiceToForm = (inv) => {
+    // Split invoice_number "MC-000051" → prefix "MC"
+    let pfx = '';
+    if (inv.invoice_number) {
+      const m = String(inv.invoice_number).match(/^([A-Za-z0-9]+)-/);
+      if (m) pfx = m[1];
+    }
+
+    const items = (inv.items || []).map((it, idx) => ({
+      id: it.id || idx + 1,
+      name: it.product_name || it.product?.name || '',
+      qty: parseFloat(it.quantity) || 1,
+      price: parseFloat(it.price) || 0,
+      unit: it.unit || it.product?.unit || 'Nos',
+      disc: parseFloat(it.discount_percent) || 0,
+      gst: parseFloat(it.gst_rate) || 0,
+      hsn: it.hsn_sac_code || it.product?.hsn_sac_code || '',
+      product_id: it.product_id || it.product?.id || null,
+    }));
+
+    // Initial payment (first payment, if any)
+    const firstPayment = (inv.payments || [])[0] || null;
+
+    return {
+      prefix: pfx,
+      type: mapTypeFromApi(inv.type),
+      customerId: inv.customer_id || inv.customer?.id || '',
+      date: inv.invoice_date ? String(inv.invoice_date).split('T')[0] : today(),
+      dueDate: inv.due_date ? String(inv.due_date).split('T')[0] : '',
+      items: items.length ? items : blankForm().items,
+      notes: inv.notes || '',
+      terms: inv.terms_conditions || '',
+      disc: parseFloat(inv.discount_amount) || 0,
+      adjustment: parseFloat(inv.adjustment_amount) || 0,
+      roundOff: !!inv.round_off,
+      advancePaid: firstPayment ? (parseFloat(firstPayment.amount) || 0) : 0,
+      paymentMethod: firstPayment?.payment_method || 'cash',
+      status: inv.status || 'draft',
+      template: 'modern',
+      logo: null,
+    };
+  };
+
+  // Draft persistence — SKIPPED in edit mode so server data is authoritative.
   useEffect(() => {
+    if (isEdit) return;            // editing: don't restore a stale draft
     if (restoredRef.current) return;
     restoredRef.current = true;
     try {
@@ -1410,46 +1543,51 @@ function CreateInvoiceInner() {
     } catch (e) {
       console.warn('Restore draft failed:', e);
     }
-  }, [editId]);
+  }, [editId, isEdit]);
 
   useEffect(() => {
+    if (isEdit) return;            // don't persist drafts while editing existing invoice
     try {
       sessionStorage.setItem(DRAFT_KEY(editId), JSON.stringify(form));
     } catch (e) {}
-  }, [form, editId]);
+  }, [form, editId, isEdit]);
 
   const clearDraft = () => {
     try { sessionStorage.removeItem(DRAFT_KEY(editId)); } catch (e) {}
   };
 
-  // ── Invoice number = prefix + "-" + zero-padded seq (display only) ──
-  const number = `${form.prefix}-${String(form.seq || 1).padStart(6, '0')}`;
+  // Display number:
+  //  - edit mode → the existing invoice number
+  //  - new mode  → server-suggested number, else placeholder from prefix
+  const number = isEdit
+    ? existingNumber
+    : (suggestedNumber || (form.prefix ? `${form.prefix}-……` : ''));
 
-  const checkInvoiceNumber = async (invoiceNumber) => {
-    if (!invoiceNumber) return true;
-    setCheckingInvoiceNumber(true);
-    setInvoiceNumberError(null);
+  /* ── /check-number: returns { suggested_number, prefix } for the given prefix ── */
+  const fetchSuggestedNumber = async (prefix) => {
+    if (isEdit) return null;       // never suggest a new number while editing
+    if (!prefix) { setSuggestedNumber(''); return null; }
+    setFetchingNumber(true);
     try {
       const token = localStorage.getItem('zetsap_token');
       const res = await fetch(`${API_BASE}/admin/invoices/check-number`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ invoice_number: invoiceNumber })
+        body: JSON.stringify({ prefix })
       });
-      const result = await res.json();
-      if (result.available === false) {
-        setInvoiceNumberValid(false);
-        setInvoiceNumberError(`Invoice number "${invoiceNumber}" is already taken. Please use a different number.`);
-        return false;
+      const data = await res.json();
+      if (res.ok && data.suggested_number) {
+        setSuggestedNumber(data.suggested_number);
+        return data.suggested_number;
       }
-      setInvoiceNumberValid(true);
-      setInvoiceNumberError(null);
-      return true;
+      setSuggestedNumber('');
+      return null;
     } catch (error) {
-      console.error('Check invoice number error:', error);
-      return true;
+      console.error('Suggested number error:', error);
+      setSuggestedNumber('');
+      return null;
     } finally {
-      setCheckingInvoiceNumber(false);
+      setFetchingNumber(false);
     }
   };
 
@@ -1470,12 +1608,23 @@ function CreateInvoiceInner() {
       else if (data.prefixes && Array.isArray(data.prefixes)) list = data.prefixes;
       else if (data.data && Array.isArray(data.data)) list = data.data;
       setPrefixList(list);
-      if (list.length > 0) {
+
+      // In edit mode, the prefix comes from the loaded invoice — don't override it
+      // and don't trigger the no-prefix flow or number suggestion.
+      if (isEdit) {
+        return list;
+      }
+
+      if (list.length === 0) {
+        setForm(f => ({ ...f, prefix: '' }));
+        setSuggestedNumber('');
+        setShowNoPrefix(true);
+      } else {
+        setShowNoPrefix(false);
         const exists = list.some(p => p.prefix === form.prefix);
-        if (!exists) {
-          const def = list.find(p => p.is_default) || list[0];
-          setForm(f => ({ ...f, prefix: def.prefix }));
-        }
+        const chosen = exists ? form.prefix : (list.find(p => p.is_default) || list[0]).prefix;
+        setForm(f => ({ ...f, prefix: chosen }));
+        await fetchSuggestedNumber(chosen);
       }
       return list;
     } catch (err) {
@@ -1502,7 +1651,9 @@ function CreateInvoiceInner() {
       await fetchPrefixes();
       const added = data.prefix?.prefix || prefix;
       setForm(f => ({ ...f, prefix: added }));
+      await fetchSuggestedNumber(added);
       setDirty(true);
+      setShowNoPrefix(false);
       toast('Prefix added', 'success');
       return null;
     } catch (err) {
@@ -1528,6 +1679,7 @@ function CreateInvoiceInner() {
       await fetchPrefixes();
       if (oldPrefix && form.prefix === oldPrefix) {
         setForm(f => ({ ...f, prefix }));
+        await fetchSuggestedNumber(prefix);
       }
       toast('Prefix updated', 'success');
       return null;
@@ -1554,6 +1706,7 @@ function CreateInvoiceInner() {
       if (removed && form.prefix === removed && fresh.length > 0) {
         const def = fresh.find(p => p.is_default) || fresh[0];
         setForm(f => ({ ...f, prefix: def.prefix }));
+        await fetchSuggestedNumber(def.prefix);
       }
       toast('Prefix deleted', 'success');
       return null;
@@ -1656,32 +1809,95 @@ function CreateInvoiceInner() {
 
   const refreshVendors = async () => { return await fetchVendors(); };
 
+  /* ── EDIT MODE: fetch the invoice by id and populate the form ── */
+  const fetchInvoiceForEdit = async (id) => {
+    setLoadingInvoice(true);
+    setInvoiceLoadError(null);
+    const token = localStorage.getItem('zetsap_token');
+    try {
+      const res = await fetch(`${API_BASE}/admin/invoices/${id}`, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // fallback to local state if available
+        const local = (state.invoices || []).find(i => String(i.id) === String(id));
+        if (local) {
+          const mapped = mapInvoiceToForm(local);
+          setForm(mapped);
+          setExistingNumber(local.invoice_number || '');
+          setLoadingInvoice(false);
+          return;
+        }
+        setInvoiceLoadError(data.message || 'Failed to load invoice for editing.');
+        setLoadingInvoice(false);
+        return;
+      }
+      // API may wrap the invoice in { invoice: {...} } or return it directly
+      const inv = data.invoice || data.data || data;
+      const mapped = mapInvoiceToForm(inv);
+      setForm(mapped);
+      setExistingNumber(inv.invoice_number || '');
+    } catch (error) {
+      console.error('Fetch invoice for edit error:', error);
+      const local = (state.invoices || []).find(i => String(i.id) === String(id));
+      if (local) {
+        setForm(mapInvoiceToForm(local));
+        setExistingNumber(local.invoice_number || '');
+      } else {
+        setInvoiceLoadError('Network error. Please try again.');
+      }
+    } finally {
+      setLoadingInvoice(false);
+    }
+  };
+
+  // Initial data load
   useEffect(() => {
     fetchCustomers();
     fetchProducts();
     fetchVendors();
     fetchPrefixes();
-  }, []);
-
-  useEffect(() => {
-    if (editId && !sessionStorage.getItem(DRAFT_KEY(editId))) {
-      const inv = (state.invoices || []).find(i => i.id === editId);
-      if (inv) setForm(inv);
+    if (isEdit) {
+      fetchInvoiceForEdit(editId);
     }
-  }, [editId]);
+  }, []);
 
   const sf = (k, v) => { setForm(f => ({ ...f, [k]: v })); setDirty(true); };
 
   const displayCustomers = apiCustomers.length > 0 ? apiCustomers : (state.customers || []);
   const displayProducts = apiProducts.length > 0 ? apiProducts : (state.products || []);
 
-  // Stock guard
+  // Stock guard.
+  // NOTE: in edit mode the stock currently reported by the API has ALREADY been
+  // reduced by this invoice's existing quantities, so we add back this invoice's
+  // own original quantity for each product before comparing.
+  const originalQtyByProduct = useRef({});
+  useEffect(() => {
+    if (!isEdit) return;
+    const map = {};
+    form.items.forEach(it => {
+      if (it.product_id) map[it.product_id] = (map[it.product_id] || 0) + (parseFloat(it.qty) || 0);
+    });
+    originalQtyByProduct.current = map;
+  }, [isEdit, loadingInvoice]); // capture once invoice is loaded
+
+  const effectiveStock = (product) => {
+    const base = getStock(product);
+    if (base === null) return null;
+    if (isEdit && product?.id && originalQtyByProduct.current[product.id]) {
+      return base + originalQtyByProduct.current[product.id];
+    }
+    return base;
+  };
+
   const enforceStockOnItems = (items) => {
     const warnings = {};
     const next = items.map(item => {
       if (!item.name) return item;
       const product = displayProducts.find(p => p.name === item.name);
-      const stock = getStock(product);
+      const stock = effectiveStock(product);
       if (stock === null) return item;
       if (stock <= 0) {
         warnings[item.id] = `"${item.name}" is out of stock. Please purchase before billing.`;
@@ -1706,16 +1922,16 @@ function CreateInvoiceInner() {
   const getSelectableProducts = () => {
     return displayProducts.filter(product => {
       if (product.type === 'service') return true;
-      const stock = getStock(product);
+      const stock = effectiveStock(product);
       return stock !== null && stock > 0;
     });
   };
 
   useEffect(() => {
-    if (!fetchingProducts) {
+    if (!fetchingProducts && !loadingInvoice) {
       enforceStockOnItems(form.items);
     }
-  }, [fetchingProducts]);
+  }, [fetchingProducts, loadingInvoice]);
 
   const totals = calcDoc(form.items, form.disc);
   const adjustment = parseFloat(form.adjustment) || 0;
@@ -1728,7 +1944,7 @@ function CreateInvoiceInner() {
     for (const item of form.items) {
       if (!item.name) continue;
       const product = displayProducts.find(p => p.name === item.name);
-      const stock = getStock(product);
+      const stock = effectiveStock(product);
       if (stock === null) continue;
       if (stock <= 0) return item;
       if ((parseFloat(item.qty) || 0) > stock) return item;
@@ -1738,8 +1954,8 @@ function CreateInvoiceInner() {
 
   const buildItemsPayload = () => form.items.filter(i => i.name?.trim()).map(item => {
     const product = displayProducts.find(p => p.name === item.name);
-    return {
-      product_id: product?.id || null,
+    const payload = {
+      product_id: item.product_id || product?.id || null,
       product_name: item.name,
       hsn_sac_code: item.hsn || product?.hsn_sac_code || '',
       quantity: parseFloat(item.qty) || 1,
@@ -1748,9 +1964,12 @@ function CreateInvoiceInner() {
       gst_rate: parseFloat(item.gst) || 0,
       unit: item.unit || 'Nos'
     };
+    // Keep the existing line id on edit so the backend can match rows
+    if (isEdit && typeof item.id === 'number') payload.id = item.id;
+    return payload;
   });
 
-  // NOTE: backend expects `prefix` (e.g. "ABC"), and `initial_payment` when amount paid > 0.
+  // backend expects `prefix`, and `initial_payment` when amount paid > 0.
   const buildApiData = () => {
     const data = {
       prefix: form.prefix,
@@ -1769,7 +1988,6 @@ function CreateInvoiceInner() {
       terms_conditions: form.terms || null,
       items: buildItemsPayload()
     };
-    // Only include initial_payment when an amount was actually paid (THIS is the fix)
     if (advancePaidNum > 0) {
       data.initial_payment = {
         amount: advancePaidNum,
@@ -1782,18 +2000,16 @@ function CreateInvoiceInner() {
   // Collect ALL missing required fields into one list for the modal
   const collectMissing = () => {
     const miss = [];
-    if (!form.prefix) miss.push('Invoice prefix');
+    if (!form.prefix) miss.push('Invoice prefix (create one first)');
     if (!form.customerId) miss.push('Customer (please select a customer)');
     if (!form.date) miss.push('Invoice date');
     const hasItem = form.items.some(i => i.name?.trim());
     if (!hasItem) miss.push('At least one product/service line item');
-    // Items present but missing a price
-    form.items.forEach((it, idx) => {
+    form.items.forEach((it) => {
       if (it.name?.trim() && (!(parseFloat(it.price) > 0))) {
         miss.push(`Price for "${it.name}"`);
       }
     });
-    // Initial payment sanity: if a method requires amount, or amount exceeds total
     if (advancePaidNum > 0 && advancePaidNum > grandTotal) {
       miss.push('Amount Paid cannot exceed the invoice total');
     }
@@ -1834,6 +2050,12 @@ function CreateInvoiceInner() {
 
   // Single gate used by Save / Save & Send. Returns false (and opens modal) if invalid.
   const validateOrShowModal = () => {
+    // No prefix at all → prompt to create one (blocking). Skipped in edit mode
+    // because the invoice already carries its prefix.
+    if (!isEdit && (!prefixList || prefixList.length === 0 || !form.prefix)) {
+      setShowNoPrefix(true);
+      return false;
+    }
     const miss = collectMissing();
     if (miss.length > 0) {
       setMissingFields(miss);
@@ -1843,7 +2065,7 @@ function CreateInvoiceInner() {
     const stockIssue = hasStockProblem();
     if (stockIssue) {
       const product = displayProducts.find(p => p.name === stockIssue.name);
-      const stock = getStock(product);
+      const stock = effectiveStock(product);
       if (stock <= 0) toast(`"${stockIssue.name}" is out of stock. Please purchase before billing.`, 'error');
       else toast(`"${stockIssue.name}" only has ${stock} in stock. Please purchase more before billing.`, 'error');
       return false;
@@ -1854,17 +2076,12 @@ function CreateInvoiceInner() {
   const save = async (status = 'draft') => {
     if (!validateOrShowModal()) return;
 
-    const isNumberValid = await checkInvoiceNumber(number);
-    if (!isNumberValid) {
-      toast(invoiceNumberError || 'Invoice number already exists. Change prefix or sequence.', 'error');
-      return;
-    }
-
     setSaving(true);
     const token = localStorage.getItem('zetsap_token');
     const apiData = buildApiData();
     const url = editId ? `${API_BASE}/admin/invoices/${editId}` : `${API_BASE}/admin/invoices`;
-    const method = editId ? 'PUT' : 'POST';
+    // POST to create, PATCH to update (full payload).
+    const method = editId ? 'PATCH' : 'POST';
 
     try {
       const res = await fetch(url, {
@@ -1876,14 +2093,15 @@ function CreateInvoiceInner() {
       if (!res.ok) {
         if (data.errors) toast(Object.values(data.errors).flat().join(', '), 'error');
         else if (data.message) toast(data.message, 'error');
-        else toast('Failed to save invoice', 'error');
+        else toast(editId ? 'Failed to update invoice' : 'Failed to save invoice', 'error');
         setSaving(false);
         return;
       }
 
-      // Response: { message, invoice_id, invoice_number }
+      // Response: { message, invoice_id, invoice_number } on create,
+      // or the full invoice object on update.
       const newId = data.invoice_id || data.id || (editId || null);
-      const savedInvoice = { ...apiData, id: newId, invoice_number: data.invoice_number, status };
+      const savedInvoice = { ...apiData, id: newId, invoice_number: data.invoice_number || existingNumber, status };
       if (editId) editItem('invoices', savedInvoice);
       else addItem('invoices', savedInvoice);
 
@@ -1899,7 +2117,10 @@ function CreateInvoiceInner() {
       if (status === 'sent') {
         setShowSend(true);
       } else {
-        showSuccessModal('Invoice saved as draft successfully!', '/dashboard/sales');
+        showSuccessModal(
+          editId ? 'Invoice updated successfully!' : 'Invoice saved as draft successfully!',
+          '/dashboard/sales'
+        );
       }
     } catch (error) {
       console.error('Save invoice error:', error);
@@ -1971,10 +2192,40 @@ function CreateInvoiceInner() {
     );
   };
 
+  // ── Edit-mode loading / error screens ──
+  if (isEdit && loadingInvoice) {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ width: 40, height: 40, border: '3px solid var(--border)', borderTopColor: 'var(--brand)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+          <p style={{ color: 'var(--muted)' }}>Loading invoice for editing...</p>
+        </div>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
+
+  if (isEdit && invoiceLoadError) {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div style={{ textAlign: 'center', maxWidth: 360, padding: 20 }}>
+          <AlertCircle size={40} color="#dc2626" style={{ margin: '0 auto 12px' }} />
+          <h3 style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>Couldn't load invoice</h3>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 18 }}>{invoiceLoadError}</p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button className="btn btn-outline btn-sm" onClick={() => router.push('/dashboard/sales')}>Back to Invoices</button>
+            <button className="btn btn-brand btn-sm" onClick={() => fetchInvoiceForEdit(editId)}>Retry</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <SuccessModal open={successModalOpen} onClose={() => setSuccessModalOpen(false)} message={successMessage} />
       <MissingFieldsModal open={showMissing} onClose={() => setShowMissing(false)} missing={missingFields} />
+      <NoPrefixModal open={showNoPrefix} onClose={() => setShowNoPrefix(false)} onCreate={addPrefix} />
       <InvoicePreviewModal open={showInvoicePreview} onClose={() => setShowInvoicePreview(false)} data={previewData} />
 
       {/* ── Sticky Topbar ── */}
@@ -1984,35 +2235,51 @@ function CreateInvoiceInner() {
             <ChevronLeft size={20} />
           </button>
           <h1 style={{ fontWeight: 800, fontSize: 17, color: 'var(--text)', whiteSpace: 'nowrap' }}>
-            {editId ? 'Edit Invoice' : 'Create Invoice'}
+            {isEdit ? 'Edit Invoice' : 'Create Invoice'}
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <PrefixPicker
               value={form.prefix}
-              onChange={v => { sf('prefix', v); checkInvoiceNumber(`${v}-${String(form.seq || 1).padStart(6, '0')}`); }}
+              onChange={async v => { sf('prefix', v); await fetchSuggestedNumber(v); }}
               prefixes={prefixList}
               loading={fetchingPrefixes}
               onAdd={addPrefix}
               onEdit={editPrefix}
               onDelete={deletePrefix}
+              locked={isEdit}
             />
             <span style={{ fontWeight: 700, color: 'var(--muted)' }}>-</span>
-            <input type="number" min="1" value={form.seq || 1}
-              onChange={async e => {
-                const newSeq = parseInt(e.target.value) || 1;
-                sf('seq', newSeq);
-                await checkInvoiceNumber(`${form.prefix}-${String(newSeq).padStart(6, '0')}`);
-              }}
-              style={{ width: 70, padding: '6px 8px', border: '1.5px solid var(--border)', borderRadius: 6, fontWeight: 700, fontSize: 13, textAlign: 'center', outline: 'none', fontFamily: 'Inter,sans-serif', background: 'var(--card-bg)', color: 'var(--text)' }} />
+            {/* Number: locked existing number on edit, server-suggested on create */}
+            <div style={{
+              minWidth: 92, padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: 6,
+              fontWeight: 700, fontSize: 13, textAlign: 'center', background: 'var(--bg)', color: 'var(--text)',
+              fontFamily: 'Inter,sans-serif', whiteSpace: 'nowrap'
+            }}>
+              {isEdit
+                ? (existingNumber ? existingNumber.split('-').slice(1).join('-') : '——')
+                : (fetchingNumber
+                    ? '…'
+                    : (suggestedNumber ? suggestedNumber.split('-').slice(1).join('-') : '——'))}
+            </div>
           </div>
-          {invoiceNumberError && (
-            <div style={{ fontSize: 10, color: '#dc2626', marginLeft: 8 }}>{invoiceNumberError}</div>
-          )}
-          {checkingInvoiceNumber && (
-            <div style={{ fontSize: 10, color: '#6b7280', marginLeft: 8 }}>Checking...</div>
-          )}
-          {invoiceNumberValid && number && !checkingInvoiceNumber && !invoiceNumberError && (
-            <div style={{ fontSize: 10, color: '#10b981', marginLeft: 8 }}>✓ {number} available</div>
+
+          {/* Status line */}
+          {isEdit ? (
+            <div style={{ fontSize: 10, color: '#10b981', marginLeft: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Lock size={10} /> Editing {existingNumber}
+            </div>
+          ) : (
+            <>
+              {fetchingNumber && (
+                <div style={{ fontSize: 10, color: '#6b7280', marginLeft: 8 }}>Getting number...</div>
+              )}
+              {!fetchingNumber && suggestedNumber && (
+                <div style={{ fontSize: 10, color: '#10b981', marginLeft: 8 }}>✓ Next: {suggestedNumber}</div>
+              )}
+              {!fetchingNumber && !suggestedNumber && form.prefix && (
+                <div style={{ fontSize: 10, color: '#dc2626', marginLeft: 8 }}>Couldn't get number for "{form.prefix}"</div>
+              )}
+            </>
           )}
         </div>
         <div className="inv-topbar-btns">
@@ -2020,10 +2287,10 @@ function CreateInvoiceInner() {
             <Eye size={13} /> <span>Preview</span>
           </button>
           <button className="btn btn-outline btn-sm" onClick={() => save('draft')} disabled={saving}>
-            <Save size={13} /> <span>{saving ? '' : 'Save as Draft'}</span>{saving && <Spin />}
+            <Save size={13} /> <span>{saving ? '' : (isEdit ? 'Update Draft' : 'Save as Draft')}</span>{saving && <Spin />}
           </button>
           <button className="btn btn-brand btn-sm" onClick={() => save('sent')} disabled={saving}>
-            <Send size={13} /> <span>{saving ? '' : 'Save & Send'}</span>{saving && <Spin />}
+            <Send size={13} /> <span>{saving ? '' : (isEdit ? 'Update & Send' : 'Save & Send')}</span>{saving && <Spin />}
           </button>
         </div>
       </div>
@@ -2255,10 +2522,10 @@ function CreateInvoiceInner() {
 
             <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <button className="btn btn-brand" style={{ width: '100%', justifyContent: 'center' }} onClick={() => save('sent')} disabled={saving}>
-                <Send size={14} /> Save & Send
+                <Send size={14} /> {isEdit ? 'Update & Send' : 'Save & Send'}
               </button>
               <button className="btn btn-outline" style={{ width: '100%', justifyContent: 'center' }} onClick={() => save('draft')} disabled={saving}>
-                <Save size={14} /> Save as Draft
+                <Save size={14} /> {isEdit ? 'Update Draft' : 'Save as Draft'}
               </button>
               <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', color: 'var(--brand)' }} onClick={handlePreview} disabled={saving}>
                 <Eye size={14} /> Preview (no save)

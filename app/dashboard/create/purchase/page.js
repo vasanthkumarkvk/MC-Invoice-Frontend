@@ -11,7 +11,7 @@ import { UnsavedModal } from '@/components/Modal';
 import AIModal from '@/components/AIModal';
 import Sheet from '@/components/Sheet';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
 
 /* ══════════════════════════════════════════════════
    SUCCESS MODAL

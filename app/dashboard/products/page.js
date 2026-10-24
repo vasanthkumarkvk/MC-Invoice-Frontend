@@ -1,15 +1,186 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, Pencil, Trash2, Package, Tag, List, Grid3X3, RefreshCw, AlertCircle, X, Check, User, Building2, Shield, ExternalLink } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Package, Tag, List, Grid3X3, RefreshCw, AlertCircle, X, Check, User, Building2, Shield, ExternalLink, ChevronDown } from 'lucide-react';
 import { useApp } from '@/lib/AppContext';
 import Sheet from '@/components/Sheet';
 import { DeleteModal } from '@/components/Modal';
 import EmptyState from '@/components/EmptyState';
 
-const API_BASE = 'https://api.crazystory.in/api';
+const API_BASE = 'https://invoice.crazystory.in/api';
+const HSN_API_BASE = 'https://invoice.crazystory.in/api'; // Change to your actual domain
 
-// Quick Add Vendor Component
+// ─── HSN Code Search Input Component ───────────────────────────────────────
+function HsnCodeInput({ value, onChange, placeholder, error, label }) {
+  const [query, setQuery] = useState(value || '');
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState(false);
+  const wrapperRef = useRef(null);
+  const debounceRef = useRef(null);
+
+  // Sync external value changes (e.g. edit mode pre-fill)
+  useEffect(() => {
+    if (value !== query) {
+      setQuery(value || '');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const fetchSuggestions = useCallback(async (q) => {
+    if (!q || q.length < 1) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${HSN_API_BASE}/hsn/search?q=${encodeURIComponent(q)}`, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (res.status === 404) {
+        setSuggestions([]);
+        setOpen(true);
+        return;
+      }
+      const data = await res.json();
+      if (data.status && Array.isArray(data.data)) {
+        setSuggestions(data.data.slice(0, 10)); // cap at 10 results
+        setOpen(true);
+      } else {
+        setSuggestions([]);
+        setOpen(true);
+      }
+    } catch {
+      setSuggestions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setSelected(false);
+    onChange(val); // keep parent form state in sync while typing
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(val), 300);
+  };
+
+  const handleSelect = (item) => {
+    setQuery(item.hsn_code);
+    setSelected(true);
+    setOpen(false);
+    setSuggestions([]);
+    onChange(item.hsn_code, item); // pass full item so parent can also read gst_rate etc.
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') setOpen(false);
+  };
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      {label && <label className="form-label">{label}</label>}
+      <div style={{ position: 'relative' }}>
+        <input
+          className={`form-input ${error ? 'error' : ''}`}
+          placeholder={placeholder || 'e.g., 84713000'}
+          value={query}
+          onChange={handleChange}
+          onFocus={() => { if (suggestions.length > 0) setOpen(true); }}
+          onKeyDown={handleKeyDown}
+          autoComplete="off"
+        />
+        {loading && (
+          <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)' }}>
+            <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #e5e7eb', borderTopColor: 'var(--brand)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+          </span>
+        )}
+        {selected && !loading && (
+          <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#10b981' }}>
+            <Check size={14} />
+          </span>
+        )}
+      </div>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 4px)',
+          left: 0,
+          right: 0,
+          background: 'var(--card-bg)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+          zIndex: 9999,
+          maxHeight: 260,
+          overflowY: 'auto'
+        }}>
+          {suggestions.length === 0 ? (
+            <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
+              No HSN codes found for &ldquo;{query}&rdquo;
+            </div>
+          ) : (
+            suggestions.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onMouseDown={() => handleSelect(item)} // mousedown fires before blur
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: '10px 14px',
+                  textAlign: 'left',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: '1px solid var(--border)',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s'
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--brand-bg)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: 'var(--brand)' }}>
+                    {item.hsn_code}
+                  </span>
+                  {item.gst_rate !== null && item.gst_rate !== undefined && (
+                    <span style={{ fontSize: 11, padding: '2px 7px', background: 'var(--brand-bg)', color: 'var(--brand)', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                      GST {item.gst_rate}%
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
+                  {item.description}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
+      {error && <p className="form-err">{error}</p>}
+    </div>
+  );
+}
+
+// ─── Quick Add Vendor Component ─────────────────────────────────────────────
 // NOTE: Only the three "main" details — name, mobile, email — are uniqueness-checked.
 // Mobile/email are validated for FORMAT only if the user fills them; they are NOT mandatory.
 // GSTIN and all bank fields are fully optional with no uniqueness/format blocking.
@@ -33,7 +204,6 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
 
   if (!open) return null;
 
-  // ---- Uniqueness checks: ONLY name, mobile, email ----
   const checkUnique = async (field, value) => {
     if (!value) return true;
     const token = localStorage.getItem('zetsap_token');
@@ -51,7 +221,7 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
       return result.available !== false;
     } catch (error) {
       console.error(`Check ${field} error:`, error);
-      return true; // fail open — don't block the user on a network hiccup
+      return true;
     }
   };
 
@@ -91,7 +261,6 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
     }
   };
 
-  // ---- Format validators (only applied if the field is filled) ----
   const validateMobileFormat = (num) => {
     const mobileRegex = /^[0-9]{10}$/;
     if (num && !mobileRegex.test(num)) return 'Enter a valid 10-digit mobile number';
@@ -140,20 +309,17 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
     }
   };
 
-  // GSTIN: free text, uppercased, NO format/uniqueness blocking
   const handleGstinChange = (value) => {
     setGstin(value.toUpperCase());
   };
 
   const handleSubmit = async () => {
-    // Only name is mandatory.
     if (!name.trim()) {
       setErrors(prev => ({ ...prev, name: 'Vendor name is required' }));
       toast('Vendor name is required', 'error');
       return;
     }
 
-    // Format checks only for filled optional fields.
     const mobileFormatError = validateMobileFormat(mobile);
     const emailFormatError = validateEmailFormat(email);
     if (mobileFormatError) setErrors(prev => ({ ...prev, mobile: mobileFormatError }));
@@ -205,25 +371,15 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
         return;
       }
 
-      // API returns { message, vendor_id } per the summary table.
       const newVendor = data.vendor || (data.vendor_id ? { ...apiData, id: data.vendor_id } : data);
       toast(`${vendorType === 'own' ? 'My Business' : 'Third Party'} vendor created successfully`, 'success');
 
       if (refreshVendors) await refreshVendors();
       if (onAdded) onAdded(newVendor);
 
-      setName('');
-      setMobile('');
-      setEmail('');
-      setGstin('');
-      setAddress('');
-      setBankName('');
-      setAccountNumber('');
-      setIfscCode('');
-      setBranch('');
-      setUpiId('');
-      setErrors({});
-      setVendorType('third_party');
+      setName(''); setMobile(''); setEmail(''); setGstin(''); setAddress('');
+      setBankName(''); setAccountNumber(''); setIfscCode(''); setBranch(''); setUpiId('');
+      setErrors({}); setVendorType('third_party');
       onClose();
     } catch (error) {
       console.error('Create vendor error:', error);
@@ -301,12 +457,7 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
 
           <div style={{ marginBottom: 14 }}>
             <label className="form-label">GSTIN</label>
-            <input
-              className="form-input"
-              placeholder="29AABCT1332L0Z"
-              value={gstin}
-              onChange={e => handleGstinChange(e.target.value)}
-            />
+            <input className="form-input" placeholder="29AABCT1332L0Z" value={gstin} onChange={e => handleGstinChange(e.target.value)} />
           </div>
 
           <div style={{ marginBottom: 14 }}>
@@ -353,7 +504,7 @@ function QuickAddVendor({ open, onClose, onAdded, toast, refreshVendors }) {
   );
 }
 
-// Product Form Component
+// ─── Product Form Component ──────────────────────────────────────────────────
 function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendors }) {
   const blank = {
     type: 'product',
@@ -364,7 +515,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
     selling_price: '',
     purchase_price: '',
     unit: 'Nos',
-    gst_rate: 18, // default, but NOT mandatory
+    gst_rate: 18,
     opening_stock: '',
     low_stock_alert: '',
     description: '',
@@ -395,40 +546,30 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
 
   const checkSku = async (sku) => {
     if (!sku || f.type !== 'product' || (data && data.sku === sku)) return true;
-
     setCheckingSku(true);
     try {
       const token = localStorage.getItem('zetsap_token');
       const res = await fetch(`${API_BASE}/admin/products/check-unique`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify({ field: 'sku', value: sku })
       });
-
       const result = await res.json();
-
       if (result.available === false) {
         setErr(prev => ({ ...prev, sku: 'SKU is already taken' }));
         setSkuAvailable(false);
         return false;
       }
-
       setErr(prev => ({ ...prev, sku: null }));
       setSkuAvailable(true);
       return true;
-    } catch (error) {
-      console.error('Check SKU error:', error);
+    } catch {
       return true;
     } finally {
       setCheckingSku(false);
     }
   };
 
-  // Mandatory: name, selling_price, HSN/SAC, unit (for product). GST is NOT mandatory.
   const validate = () => {
     const e = {};
     if (!f.name?.trim()) e.name = 'Product name is required';
@@ -442,7 +583,6 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
     if (f.type === 'service') {
       if (!f.hsn_sac_code) e.hsn_sac_code = 'SAC code is required for services';
     }
-
     setErr(e);
     return Object.keys(e).length === 0;
   };
@@ -464,7 +604,6 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
       hsn_sac_code: f.hsn_sac_code,
       selling_price: parseFloat(f.selling_price),
       unit: f.unit,
-      // GST optional: only send if a value is present
       gst_rate: (f.gst_rate === '' || f.gst_rate === null || f.gst_rate === undefined) ? null : parseInt(f.gst_rate),
       description: f.description || null,
       vendor_id: f.vendor_id ? parseInt(f.vendor_id) : null
@@ -474,7 +613,6 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
       apiData.sku = f.sku || null;
       apiData.category = f.category || null;
       apiData.purchase_price = f.purchase_price ? parseFloat(f.purchase_price) : null;
-
       if (!isEditMode) {
         apiData.initial_quantity = f.initial_quantity ? parseInt(f.initial_quantity) : (f.opening_stock ? parseInt(f.opening_stock) : 0);
         apiData.initial_cost = f.initial_cost ? parseFloat(f.initial_cost) : (f.purchase_price ? parseFloat(f.purchase_price) : null);
@@ -490,20 +628,14 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
     try {
       const res = await fetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(apiData)
       });
-
       const result = await res.json();
 
       if (!res.ok) {
         if (result.errors) {
-          const errorMessages = Object.values(result.errors).flat().join(', ');
-          toast(errorMessages, 'error');
+          toast(Object.values(result.errors).flat().join(', '), 'error');
         } else {
           toast(result.message || `Failed to ${data?.id ? 'update' : 'create'} product`, 'error');
         }
@@ -511,12 +643,10 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         return;
       }
 
-      // POST returns { message, product_id }; PUT returns the updated object.
       const savedProduct = result.product || (result.product_id ? { ...apiData, id: result.product_id } : result);
       onSave(savedProduct);
       toast(`${f.type === 'product' ? 'Product' : 'Service'} ${data?.id ? 'updated' : 'created'} successfully`, 'success');
-    } catch (error) {
-      console.error('Save product error:', error);
+    } catch {
       toast('Network error. Please try again.', 'error');
     } finally {
       setLoading(false);
@@ -529,11 +659,23 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
     toast('Vendor added and selected!', 'success');
   };
 
+  // Handle HSN selection from autocomplete — also auto-fill GST if provided
+  const handleHsnChange = (code, item) => {
+    s('hsn_sac_code', code);
+    // If the HSN record has a gst_rate, auto-fill the GST field
+    if (item && item.gst_rate !== null && item.gst_rate !== undefined) {
+      s('gst_rate', String(item.gst_rate));
+    }
+    // Clear error on change
+    if (code) setErr(prev => ({ ...prev, hsn_sac_code: null }));
+  };
+
   const ownVendorsCount = vendors.filter(v => v.type === 'own').length;
   const thirdPartyVendorsCount = vendors.filter(v => v.type === 'third_party').length;
 
   return (
     <div>
+      {/* Type */}
       <div style={{ marginBottom: 14 }}>
         <label className="form-label">Type *</label>
         <div style={{ display: 'flex', gap: 12 }}>
@@ -548,16 +690,24 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </div>
       </div>
 
+      {/* Name */}
       <div style={{ marginBottom: 14 }}>
         <label className="form-label">Name *</label>
         <input className={`form-input ${err.name ? 'error' : ''}`} placeholder="Enter product/service name" value={f.name} onChange={e => s('name', e.target.value)} autoFocus />
         {err.name && <p className="form-err">{err.name}</p>}
       </div>
 
+      {/* SKU (product only) */}
       {f.type === 'product' && (
         <div style={{ marginBottom: 14 }}>
           <label className="form-label">SKU</label>
-          <input className={`form-input ${err.sku ? 'error' : ''}`} placeholder="e.g., LAP-001" value={f.sku} onChange={e => s('sku', e.target.value.toUpperCase())} onBlur={(e) => e.target.value && checkSku(e.target.value)} />
+          <input
+            className={`form-input ${err.sku ? 'error' : ''}`}
+            placeholder="e.g., LAP-001"
+            value={f.sku}
+            onChange={e => s('sku', e.target.value.toUpperCase())}
+            onBlur={(e) => e.target.value && checkSku(e.target.value)}
+          />
           {checkingSku && <p className="form-err" style={{ color: '#6b7280' }}>Checking availability...</p>}
           {err.sku && <p className="form-err">{err.sku}</p>}
           {skuAvailable && f.sku && !checkingSku && !err.sku && (
@@ -568,12 +718,18 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </div>
       )}
 
+      {/* HSN / SAC Code — now with live search autocomplete */}
       <div style={{ marginBottom: 14 }}>
-        <label className="form-label">{f.type === 'product' ? 'HSN Code' : 'SAC Code'} *</label>
-        <input className={`form-input ${err.hsn_sac_code ? 'error' : ''}`} placeholder={f.type === 'product' ? 'e.g., 84713000' : 'e.g., 998314'} value={f.hsn_sac_code} onChange={e => s('hsn_sac_code', e.target.value)} />
-        {err.hsn_sac_code && <p className="form-err">{err.hsn_sac_code}</p>}
+        <HsnCodeInput
+          label={`${f.type === 'product' ? 'HSN Code' : 'SAC Code'} *`}
+          value={f.hsn_sac_code}
+          onChange={handleHsnChange}
+          placeholder={f.type === 'product' ? 'e.g., 84713000' : 'e.g., 998314'}
+          error={err.hsn_sac_code}
+        />
       </div>
 
+      {/* Category (product only) */}
       {f.type === 'product' && (
         <div style={{ marginBottom: 14 }}>
           <label className="form-label">Category</label>
@@ -581,6 +737,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </div>
       )}
 
+      {/* Unit */}
       <div style={{ marginBottom: 14 }}>
         <label className="form-label">Unit *</label>
         <select className="form-select" value={f.unit} onChange={e => s('unit', e.target.value)}>
@@ -596,10 +753,10 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </select>
       </div>
 
+      {/* Vendor (product only) */}
       {f.type === 'product' && (
         <div style={{ marginBottom: 14 }}>
           <label className="form-label">Vendor</label>
-
           <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             <button type="button" onClick={() => setVendorFilter('all')} style={{ padding: '8px 16px', fontSize: 13, fontWeight: vendorFilter === 'all' ? 600 : 500, borderRadius: 8, border: `1px solid ${vendorFilter === 'all' ? 'var(--brand)' : 'var(--border)'}`, background: vendorFilter === 'all' ? 'var(--brand-bg)' : 'transparent', color: vendorFilter === 'all' ? 'var(--brand)' : 'var(--muted)', cursor: 'pointer' }}>
               All Vendors ({vendors.length})
@@ -611,14 +768,12 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
               <ExternalLink size={14} /> Third Party ({thirdPartyVendorsCount})
             </button>
           </div>
-
           <div style={{ display: 'flex', gap: 6 }}>
             <select className="form-select" style={{ flex: 1 }} value={f.vendor_id} onChange={e => s('vendor_id', e.target.value)}>
               <option value="">Select Vendor...</option>
               {filteredVendors.map(v => (
                 <option key={v.id} value={v.id}>
-                  {v.type === 'own' ? '🏢 ' : '🔗 '}{v.name}
-                  {v.mobile ? ` - ${v.mobile}` : ''}
+                  {v.type === 'own' ? '🏢 ' : '🔗 '}{v.name}{v.mobile ? ` - ${v.mobile}` : ''}
                 </option>
               ))}
             </select>
@@ -629,6 +784,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </div>
       )}
 
+      {/* Selling / Purchase price */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
         <div>
           <label className="form-label">Selling Price *</label>
@@ -643,6 +799,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         )}
       </div>
 
+      {/* Initial quantity / cost / date (product, create only) */}
       {f.type === 'product' && !isEditMode && (
         <>
           <div className="field-row field-row-2" style={{ marginBottom: 14 }}>
@@ -664,6 +821,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </>
       )}
 
+      {/* GST Rate */}
       <div style={{ marginBottom: 14 }}>
         <label className="form-label">GST Rate (%)</label>
         <select className="form-select" value={f.gst_rate} onChange={e => s('gst_rate', e.target.value)}>
@@ -676,6 +834,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </select>
       </div>
 
+      {/* Opening stock / low stock alert (product only) */}
       {f.type === 'product' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
           <div>
@@ -698,6 +857,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
         </div>
       )}
 
+      {/* Description */}
       <div style={{ marginBottom: 20 }}>
         <label className="form-label">Description</label>
         <textarea className="form-input form-textarea" rows={2} placeholder="Enter product/service description..." value={f.description} onChange={e => s('description', e.target.value)} />
@@ -721,7 +881,7 @@ function ProductForm({ data, onSave, onCancel, toast, vendors = [], refreshVendo
   );
 }
 
-// Main Products Page Component
+// ─── Main Products Page ──────────────────────────────────────────────────────
 export default function ProductsPage() {
   const router = useRouter();
   const { toast, fmtMoney, currency } = useApp();
@@ -741,36 +901,22 @@ export default function ProductsPage() {
     setLoading(true);
     setError(null);
     const token = localStorage.getItem('zetsap_token');
-
     try {
       const res = await fetch(`${API_BASE}/admin/products`, {
         method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
-
       const data = await res.json();
-
       if (res.ok) {
-        let productsList = [];
-        if (data.products && Array.isArray(data.products)) {
-          productsList = data.products;
-        } else if (data.data && Array.isArray(data.data)) {
-          productsList = data.data;
-        } else if (Array.isArray(data)) {
-          productsList = data;
-        } else {
-          productsList = [];
-        }
-        setProducts(productsList);
+        let list = [];
+        if (data.products && Array.isArray(data.products)) list = data.products;
+        else if (data.data && Array.isArray(data.data)) list = data.data;
+        else if (Array.isArray(data)) list = data;
+        setProducts(list);
       } else {
-        console.error('Failed to fetch products:', data);
         setError(data.message || 'Failed to load items. Please try again.');
       }
-    } catch (err) {
-      console.error('Fetch products error:', err);
+    } catch {
       setError('Network error. Unable to connect to server.');
     } finally {
       setLoading(false);
@@ -779,31 +925,19 @@ export default function ProductsPage() {
 
   const fetchVendors = async () => {
     const token = localStorage.getItem('zetsap_token');
-
     try {
       const res = await fetch(`${API_BASE}/admin/vendors`, {
         method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Accept': 'application/json', 'Authorization': `Bearer ${token}` }
       });
-
       const data = await res.json();
-
       if (res.ok) {
-        let vendorsList = [];
-        if (data.vendors && Array.isArray(data.vendors)) {
-          vendorsList = data.vendors;
-        } else if (data.data && Array.isArray(data.data)) {
-          vendorsList = data.data;
-        } else if (Array.isArray(data)) {
-          vendorsList = data;
-        } else {
-          vendorsList = [];
-        }
-        setVendors(vendorsList);
-        return vendorsList;
+        let list = [];
+        if (data.vendors && Array.isArray(data.vendors)) list = data.vendors;
+        else if (data.data && Array.isArray(data.data)) list = data.data;
+        else if (Array.isArray(data)) list = data;
+        setVendors(list);
+        return list;
       }
     } catch (err) {
       console.error('Fetch vendors error:', err);
@@ -816,7 +950,7 @@ export default function ProductsPage() {
     fetchVendors();
   }, []);
 
-  const handleSave = async (newProduct) => {
+  const handleSave = async () => {
     setSheetOpen(false);
     await fetchProducts();
     setEditData(null);
@@ -825,26 +959,19 @@ export default function ProductsPage() {
   const handleDelete = async () => {
     setDelL(true);
     const token = localStorage.getItem('zetsap_token');
-
     try {
       const res = await fetch(`${API_BASE}/admin/products/${del.id}`, {
         method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
       });
-
       if (res.ok) {
         await fetchProducts();
         toast('Item deleted successfully', 'success');
       } else {
         const data = await res.json();
-        // 422 when stock exists / vendor is used in purchases
         toast(data.message || 'Failed to delete item', 'error');
       }
-    } catch (error) {
-      console.error('Delete product error:', error);
+    } catch {
       toast('Network error. Please try again.', 'error');
     } finally {
       setDel(null);
@@ -852,16 +979,9 @@ export default function ProductsPage() {
     }
   };
 
-  const refreshVendors = async () => {
-    const updatedVendors = await fetchVendors();
-    return updatedVendors;
-  };
+  const refreshVendors = async () => await fetchVendors();
 
-  const getVendorName = (vendorId) => {
-    const vendor = vendors.find(v => v.id === vendorId);
-    if (!vendor) return null;
-    return vendor;
-  };
+  const getVendorName = (vendorId) => vendors.find(v => v.id === vendorId) || null;
 
   const filteredItems = products.filter(item => {
     const matchesType = activeTab === 'products' ? item.type === 'product' : item.type === 'service';
@@ -876,10 +996,7 @@ export default function ProductsPage() {
   const totalServices = products.filter(p => p.type === 'service').length;
   const lowStockCount = products.filter(p => p.type === 'product' && (parseInt(p.opening_stock) || 0) < (parseInt(p.low_stock_alert) || 5)).length;
 
-  const handleAddClick = () => {
-    setEditData(null);
-    setSheetOpen(true);
-  };
+  const handleAddClick = () => { setEditData(null); setSheetOpen(true); };
 
   if (loading) {
     return (
@@ -907,6 +1024,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 14, marginBottom: 20 }}>
         <div className="stat-card"><div style={{ fontWeight: 800, fontSize: 22 }}>{totalProducts + totalServices}</div><div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>Total Items</div></div>
         <div className="stat-card"><div style={{ fontWeight: 800, fontSize: 22 }}>{totalProducts}</div><div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>Products</div></div>
@@ -914,6 +1032,7 @@ export default function ProductsPage() {
         <div className="stat-card"><div style={{ fontWeight: 800, fontSize: 22, color: lowStockCount > 0 ? '#dc2626' : 'var(--text)' }}>{lowStockCount}</div><div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>Low Stock Items</div></div>
       </div>
 
+      {/* Tabs */}
       <div style={{ marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', gap: 4 }}>
           <button onClick={() => { setActiveTab('products'); setSearch(''); }} style={{ padding: '10px 20px', fontSize: 14, fontWeight: activeTab === 'products' ? 600 : 500, color: activeTab === 'products' ? 'var(--brand)' : 'var(--muted)', borderBottom: activeTab === 'products' ? '2px solid var(--brand)' : '2px solid transparent', background: 'transparent', cursor: 'pointer' }}>📦 Products ({totalProducts})</button>
@@ -930,7 +1049,10 @@ export default function ProductsPage() {
 
       <div className="card">
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <div className="search-bar" style={{ maxWidth: 400, flex: 1 }}><Search size={14} color="var(--muted)" /><input placeholder={`Search by name, SKU or HSN${activeTab === 'services' ? '/SAC' : ''}...`} value={search} onChange={e => setSearch(e.target.value)}/></div>
+          <div className="search-bar" style={{ maxWidth: 400, flex: 1 }}>
+            <Search size={14} color="var(--muted)" />
+            <input placeholder={`Search by name, SKU or HSN${activeTab === 'services' ? '/SAC' : ''}...`} value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
           <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
             <button className={`btn-icon${viewMode === 'list' ? ' btn-brand' : ''}`} onClick={() => setViewMode('list')}><List size={15} color={viewMode === 'list' ? 'var(--brand)' : 'var(--muted)'} /></button>
             <button className={`btn-icon${viewMode === 'grid' ? ' btn-brand' : ''}`} onClick={() => setViewMode('grid')}><Grid3X3 size={15} color={viewMode === 'grid' ? 'var(--brand)' : 'var(--muted)'} /></button>
@@ -995,7 +1117,6 @@ export default function ProductsPage() {
                       <td><span className="badge badge-brand">{p.gst_rate ?? 0}%</span></td>
                       <td style={{ fontWeight: 700 }}>{fmtMoney(p.selling_price || 0)}</td>
                       {activeTab === 'products' && <td style={{ fontWeight: 600, color: (parseInt(p.opening_stock) || 0) < (parseInt(p.low_stock_alert) || 5) ? '#dc2626' : 'var(--text)' }}>{p.opening_stock || 0}</td>}
-                      
                       <td>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <button className="btn-icon" onClick={() => { setEditData(p); setSheetOpen(true); }}><Pencil size={13} /></button>

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { useApp } from "@/lib/AppContext";
 
-const API_BASE = "https://api.crazystory.in/api";
+const API_BASE = "https://invoice.crazystory.in/api";
 
 /* ── All countries — no search bar ── */
 const COUNTRIES = [
@@ -206,9 +206,58 @@ export default function RegisterPage() {
 
   const refs = useRef([]);
 
+  // ✅ Check if user is already logged in (client-side only)
   useEffect(() => {
-    if (state.user) router.replace("/dashboard/home");
+    if (typeof window === 'undefined') return;
+    
+    const token = localStorage.getItem("zetsap_token");
+    if (state.user || token) {
+      router.replace("/dashboard/home");
+    }
+  }, [state.user, router]);
+
+  // ✅ Load saved state from sessionStorage (client-side only)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const savedStep = sessionStorage.getItem("register_step");
+    const tempToken = sessionStorage.getItem("zetsap_temp_token");
+    const savedPhone = sessionStorage.getItem("register_phone");
+    
+    // If we have temp token and were on profile/verified step, go to profile
+    if ((savedStep === "profile" || savedStep === "verified") && tempToken) {
+      setStep("profile");
+      if (savedPhone) setPhoneNumber(savedPhone);
+      return;
+    }
+    
+    // If we have a temp token and saved phone, go to OTP step
+    if (tempToken && savedPhone) {
+      setStep("otp");
+      setPhoneNumber(savedPhone);
+      return;
+    }
+    
+    // If we have saved phone but no temp token, go to OTP with resend
+    if (savedPhone) {
+      setPhoneNumber(savedPhone);
+    }
   }, []);
+
+  // ✅ Save state to sessionStorage whenever it changes (client-side only)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    if (step === "mobile") {
+      sessionStorage.removeItem("register_step");
+      sessionStorage.removeItem("register_phone");
+    } else {
+      sessionStorage.setItem("register_step", step);
+      if (phoneNumber) {
+        sessionStorage.setItem("register_phone", phoneNumber);
+      }
+    }
+  }, [step, phoneNumber]);
 
   useEffect(() => {
     if (resend <= 0) return;
@@ -243,6 +292,10 @@ export default function RegisterPage() {
       setStep("otp");
       setResend(120);
       setOtp(["", "", "", "", "", ""]);
+      // Save phone for session persistence
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem("register_phone", cleanPhone);
+      }
       setTimeout(() => refs.current[0]?.focus(), 80);
     } catch (e) {
       setApiErr("Network error. Please check your connection.");
@@ -280,10 +333,17 @@ export default function RegisterPage() {
         setLoading(false);
         return;
       }
-      // Store temp token if API returns one for complete-profile
+      
+      // ✅ Store temp token in localStorage and sessionStorage
       if (data.access_token) {
-        localStorage.setItem("zetsap_temp_token", data.access_token);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem("zetsap_temp_token", data.access_token);
+          sessionStorage.setItem("zetsap_temp_token", data.access_token);
+          sessionStorage.setItem("register_step", "profile");
+          sessionStorage.setItem("register_phone", cleanPhone);
+        }
       }
+      
       setStep("verified");
       setLoading(false);
     } catch (e) {
@@ -294,6 +354,9 @@ export default function RegisterPage() {
 
   const onTickDone = () => {
     setStep("profile");
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem("register_step", "profile");
+    }
   };
 
   const updateProfile = (field, value) => {
@@ -303,6 +366,7 @@ export default function RegisterPage() {
 
   // ── API CALL 3: Complete Profile ──
   const completeProfile = async () => {
+    // ✅ Validation
     const errs = {};
     if (!profile.first_name.trim()) errs.first_name = "First name is required";
     if (!profile.last_name.trim()) errs.last_name = "Last name is required";
@@ -316,12 +380,21 @@ export default function RegisterPage() {
     if (!profile.city.trim()) errs.city = "City is required";
     if (!profile.state.trim()) errs.state = "State is required";
     if (!profile.pincode.trim()) errs.pincode = "Pincode is required";
-    if (Object.keys(errs).length) { setProfileErr(errs); return; }
+    if (Object.keys(errs).length) { 
+      setProfileErr(errs); 
+      return; 
+    }
 
     setLoading(true);
     setApiErr("");
-    const tempToken = localStorage.getItem("zetsap_temp_token");
+    
+    let tempToken = null;
+    if (typeof window !== 'undefined') {
+      tempToken = localStorage.getItem("zetsap_temp_token") || sessionStorage.getItem("zetsap_temp_token");
+    }
+    
     try {
+      // ✅ Step 1: Complete Profile
       const res = await fetch(`${API_BASE}/complete-profile`, {
         method: "POST",
         headers: {
@@ -329,9 +402,23 @@ export default function RegisterPage() {
           Accept: "application/json",
           ...(tempToken ? { Authorization: `Bearer ${tempToken}` } : {}),
         },
-        body: JSON.stringify(profile),
+        body: JSON.stringify({
+          first_name: profile.first_name,
+          last_name: profile.last_name,
+          username: profile.username,
+          password: profile.password,
+          password_confirmation: profile.password_confirmation,
+          domain: profile.domain,
+          currency: profile.currency,
+          business_address: profile.business_address,
+          city: profile.city,
+          state: profile.state,
+          pincode: profile.pincode,
+        }),
       });
+      
       const data = await res.json();
+      
       if (!res.ok) {
         if (data.errors) {
           const mapped = {};
@@ -344,41 +431,60 @@ export default function RegisterPage() {
         return;
       }
 
-      // Profile complete → auto-login now to get the access token
-      // PROFILE COMPLETE → auto-login now to get the access token
-const cleanPhone = phoneNumber.replace(/\D/g, "");
-const loginRes = await fetch(`${API_BASE}/login`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Accept: "application/json" },
-  body: JSON.stringify({ mobile: cleanPhone, password: profile.password }),
-});
-const loginData = await loginRes.json();
-if (loginRes.ok && loginData.access_token) {
-  localStorage.setItem("zetsap_token", loginData.access_token);
-  localStorage.setItem("zetsap_user", JSON.stringify(loginData.user));
-  localStorage.setItem("zetsap_company", JSON.stringify(loginData.company));
-  localStorage.setItem("zetsap_role", JSON.stringify(loginData.role)); // ✅ This is correct
-  
-  localStorage.removeItem("zetsap_temp_token");
-  login({
-    mobile: cleanPhone,
-    username: profile.username,
-    name: loginData.user.name,
-    email: loginData.user.email,
-    role: loginData.role, // ✅ role is top-level in response
-    token: loginData.access_token,
-    user: loginData.user,
-    company: loginData.company,
-  });
-}
-      setShowLoader(true);
+      // ✅ Step 2: Auto-login with the password
+      const cleanPhone = phoneNumber.replace(/\D/g, "");
+      const loginRes = await fetch(`${API_BASE}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ mobile: cleanPhone, password: profile.password }),
+      });
+      
+      const loginData = await loginRes.json();
+      
+      if (loginRes.ok && loginData.access_token) {
+        // ✅ Clear all temp data
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem("zetsap_temp_token");
+          sessionStorage.removeItem("zetsap_temp_token");
+          sessionStorage.removeItem("register_step");
+          sessionStorage.removeItem("register_phone");
+          
+          // ✅ Store permanent token
+          localStorage.setItem("zetsap_token", loginData.access_token);
+          localStorage.setItem("zetsap_user", JSON.stringify(loginData.user));
+          localStorage.setItem("zetsap_company", JSON.stringify(loginData.company));
+          localStorage.setItem("zetsap_role", JSON.stringify(loginData.role));
+        }
+        
+        // ✅ Update app context
+        login({
+          mobile: cleanPhone,
+          username: profile.username,
+          name: loginData.user?.name || profile.first_name + " " + profile.last_name,
+          email: loginData.user?.email || profile.username,
+          role: loginData.role || "admin",
+          token: loginData.access_token,
+          user: loginData.user || data.user,
+          company: loginData.company || data.company,
+        });
+        
+        // ✅ Show loader and redirect
+        setShowLoader(true);
+      } else {
+        setApiErr("Profile completed but auto-login failed. Please login manually.");
+        setLoading(false);
+      }
+      
     } catch (e) {
+      console.error("Complete Profile Error:", e);
       setApiErr("Network error. Please try again.");
       setLoading(false);
     }
   };
 
-  const onLoaderDone = () => router.replace("/dashboard/home?welcome=1");
+  const onLoaderDone = () => {
+    router.replace("/dashboard/home?welcome=1");
+  };
 
   if (showLoader) return <Loader onDone={onLoaderDone} />;
 
@@ -536,7 +642,7 @@ if (loginRes.ok && loginData.access_token) {
         {step === "otp" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-              <button onClick={() => { setStep("mobile"); setApiErr(""); }}
+              <button onClick={() => { setStep("mobile"); setApiErr(""); if (typeof window !== 'undefined') sessionStorage.removeItem("register_step"); }}
                 style={{ background: "none", border: "none", cursor: "pointer", color: "#6b7280", fontSize: 22, padding: 0 }}>
                 ←
               </button>
