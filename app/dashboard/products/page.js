@@ -56,8 +56,11 @@ function HsnCodeInput({ value, onChange, placeholder, error, label }) {
         return;
       }
       const data = await res.json();
-      if (data.status && Array.isArray(data.data)) {
-        setSuggestions(data.data.slice(0, 10)); // cap at 10 results
+      
+      // 🚨 FIX: Handle both single object (exact match) and array (partial match)
+      if (data.status && data.data) {
+        const resultList = Array.isArray(data.data) ? data.data : [data.data];
+        setSuggestions(resultList.slice(0, 10)); // cap at 10 results
         setOpen(true);
       } else {
         setSuggestions([]);
@@ -134,7 +137,7 @@ function HsnCodeInput({ value, onChange, placeholder, error, label }) {
         }}>
           {suggestions.length === 0 ? (
             <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
-              No HSN codes found for &ldquo;{query}&rdquo;
+              No HSN/SAC codes found for &ldquo;{query}&rdquo;
             </div>
           ) : (
             suggestions.map((item) => (

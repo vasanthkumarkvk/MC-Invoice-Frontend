@@ -153,6 +153,7 @@ function VendorForm({ data, onSave, onCancel, toast }) {
     }
   };
 
+  // 🚨 GSTIN Change with Auto-Verify (Without Button Click)
   const handleGstinChange = async (value) => {
     const upperValue = value.toUpperCase();
     s('gstin', upperValue);
@@ -160,8 +161,10 @@ function VendorForm({ data, onSave, onCancel, toast }) {
     const formatError = validateGstinFormat(upperValue);
     if (formatError) {
       setErr(prev => ({ ...prev, gstin: formatError }));
-    } else if (upperValue) {
+    } else if (upperValue.length === 15) {
       setErr(prev => ({ ...prev, gstin: null }));
+      // Auto verify when 15 characters typed
+      await fetchGstin(upperValue);
       await checkUniqueness('gstin', upperValue, true);
     } else {
       setErr(prev => ({ ...prev, gstin: null }));
@@ -175,12 +178,15 @@ function VendorForm({ data, onSave, onCancel, toast }) {
     return !Object.keys(e).length; 
   };
 
-  // Verify GSTIN via API
-  const fetchGstin = async () => {
-    if (!f.gstin || f.gstin.length !== 15) { 
+  // 🚨 Verify GSTIN via Backend API
+  const fetchGstin = async (gstinValue = null) => {
+    const gstinToVerify = gstinValue || f.gstin;
+    
+    if (!gstinToVerify || gstinToVerify.length !== 15) { 
       toast('Enter a 15-digit GSTIN', 'error'); 
       return; 
     }
+    
     setGstinLoading(true);
     try {
       const token = localStorage.getItem('zetsap_token');
@@ -191,15 +197,25 @@ function VendorForm({ data, onSave, onCancel, toast }) {
           'Accept': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ gstin: f.gstin })
+        body: JSON.stringify({ gstin: gstinToVerify })
       });
       
       const result = await res.json();
       
       if (res.ok && result.data) {
-        if (result.data.legal_name && !f.name) s('name', result.data.legal_name);
-        if (result.data.trade_name && !f.name) s('name', result.data.trade_name);
-        if (result.data.address?.address) s('address', result.data.address.address);
+        // Backend la irundhu vara data-vai correct ah extract panrom
+        const legalName = result.data.legal_name || result.data.trade_name || '';
+        const address = result.data.address || '';
+
+        // Name field empty ah irundha mattum auto-fill panrom
+        if (legalName && !f.name) {
+          s('name', legalName);
+        }
+        // Address field empty ah irundha mattum auto-fill panrom
+        if (address && !f.address) {
+          s('address', address);
+        }
+        
         toast('GSTIN verified successfully', 'success');
       } else {
         toast(result.message || 'GSTIN verification failed', 'error');
@@ -354,8 +370,8 @@ function VendorForm({ data, onSave, onCancel, toast }) {
           />
           <button 
             className="btn btn-outline btn-sm" 
-            onClick={fetchGstin} 
-            disabled={gstinLoading || !!err.gstin} 
+            onClick={() => fetchGstin()} 
+            disabled={gstinLoading || !!err.gstin || f.gstin.length !== 15} 
             title="Auto-fill name and address from GSTIN"
           >
             {gstinLoading ? 'Verifying…' : 'Verify GSTIN'}
