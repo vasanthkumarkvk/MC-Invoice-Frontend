@@ -153,7 +153,7 @@ function VendorForm({ data, onSave, onCancel, toast }) {
     }
   };
 
-  // 🚨 GSTIN Change with Auto-Verify (Without Button Click)
+  // 🚨 GSTIN Change with Auto-Verify
   const handleGstinChange = async (value) => {
     const upperValue = value.toUpperCase();
     s('gstin', upperValue);
@@ -203,16 +203,15 @@ function VendorForm({ data, onSave, onCancel, toast }) {
       const result = await res.json();
       
       if (res.ok && result.data) {
-        // Backend la irundhu vara data-vai correct ah extract panrom
         const legalName = result.data.legal_name || result.data.trade_name || '';
         const address = result.data.address || '';
 
-        // Name field empty ah irundha mattum auto-fill panrom
-        if (legalName && !f.name) {
+        // 🚨 FIX: Puthu GSTIN verify pannumbodhu, pazhaya details ah overwrite pannum
+        // Ithu user type panna details ah kooda replace pannum. Athu thaan correct.
+        if (legalName) {
           s('name', legalName);
         }
-        // Address field empty ah irundha mattum auto-fill panrom
-        if (address && !f.address) {
+        if (address) {
           s('address', address);
         }
         
